@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "virtu",
-    "slug": "virtu",
+    "name": "FisiLab",
+    "slug": "fisilab",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

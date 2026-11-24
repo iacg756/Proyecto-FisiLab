@@ -1,4 +1,44 @@
-# virtu
+# FisiLab · Física
+
+Aplicación independiente de Física (CR-01), implementada en el proyecto Expo de la **raíz**. El backend central se consume sin modificaciones. La carpeta `mobile/` es heredada y no forma parte de esta aplicación.
+
+## Arranque y verificación de FIS-01 / FIS-02
+
+Desde esta carpeta, ejecutar `npm install` si faltan dependencias y luego `npm start`. Abrir el QR en Expo Go con una versión compatible con el SDK 58 configurado en el proyecto. No ejecutar estos comandos dentro de `mobile/`.
+
+- Nombre visible de Expo: **FisiLab**; identificador del proyecto Expo: `fisilab`.
+- Materia fija: `APP_SLUG = 'fisica'` en `src/config/appConfig.js`.
+- API existente: `https://backend-virtu.onrender.com/api`.
+- Sin sesión válida: formulario de login. Estudiante: Física. Docente: panel de cursos en modo lectura.
+- En Android/iOS solo se guarda el token en SecureStore. En web la sesión se conserva únicamente en memoria.
+- Al abrir, el token guardado se comprueba mediante `/auth/me`. Un fallo de red permite reintentar; una sesión vencida devuelve al login.
+- Los navegadores de cada rol son independientes y se desmontan al salir. No existe selector de materias ni pantallas de otras materias en el flujo activo.
+
+La pantalla inicial de Física consulta `/contenidos/fisica` y presenta unidades y títulos de lecciones. El panel docente consulta `/docente/cursos`. Las vistas de lección, cuestionarios, glosario y reportes de avance detallados quedan para las demás tareas. No se calculan porcentajes de Física a partir de métricas globales del backend.
+
+Comprobaciones locales:
+
+```sh
+npm run lint
+npm test
+npx expo export --platform android --output-dir .expo/fisilab-check
+```
+
+Prueba manual en Expo Go con las cuentas de prueba entregadas en el contrato:
+
+1. Sin sesión: aparece login; los campos vacíos o credenciales incorrectas muestran un error.
+2. Con `alumno1`: entra directamente a Física y carga sus unidades, sin acceso al panel docente.
+3. Cerrar sesión: vuelve al login; pulsar Atrás no recupera pantallas privadas.
+4. Con `profesor1`: entra al panel docente y carga sus cursos, sin acceso al flujo del estudiante.
+5. Cerrar y reabrir la app conservando los datos de Expo Go: recupera el rol mediante `/auth/me`.
+6. Si falla la conexión durante la recuperación, aparece Reintentar y no se borra el token por un fallo de red.
+
+Las pruebas automatizadas verifican el contrato de autenticación, almacenamiento, errores y separación de rutas. No sustituyen las comprobaciones del teléfono, teclado, botón Atrás ni almacenamiento nativo.
+
+## Documentación histórica de Virtu
+
+Lo siguiente describe la organización anterior del proyecto compartido. Para FisiLab prevalecen el CR-01 y las indicaciones anteriores; las restricciones antiguas sobre modificar únicamente el módulo de una materia no describen la integración actual de FIS-01/FIS-02.
+
 Desarrollo de herramienta digital educativa
 
 Guía principal del proyecto: qué es Virtu, cómo levantarlo y cómo trabajamos entre equipos. Si nunca usaste React Native, sigue la [sección 5](#5-cómo-levantar-el-proyecto-paso-a-paso) paso a paso.

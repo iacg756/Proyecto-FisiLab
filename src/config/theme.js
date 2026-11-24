@@ -1,8 +1,11 @@
-// Placeholder: valores provisionales hasta definir la identidad visual de Virtu.
 export const colors = {
   primary: '#2563EB',
-  background: '#FFFFFF',
+  background: '#F3F6FC',
+  surface: '#FFFFFF',
   text: '#111827',
+  textSecondary: '#4B5563',
+  border: '#CBD5E1',
+  error: '#B91C1C',
 };
 
 export const typography = {

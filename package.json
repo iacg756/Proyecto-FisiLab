@@ -1,5 +1,5 @@
 {
-  "name": "virtu",
+  "name": "fisilab",
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
@@ -21,6 +21,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "eslint .",
+    "test": "node --test tests/auth.test.cjs",
     "format": "prettier --write ."
   },
   "private": true,

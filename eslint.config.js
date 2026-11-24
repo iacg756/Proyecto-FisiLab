@@ -5,5 +5,13 @@ const prettierRecommended = require('eslint-plugin-prettier/recommended');
 module.exports = defineConfig([
   expoConfig,
   prettierRecommended,
-  globalIgnores(['node_modules/*', '.expo/*', 'dist/*', 'web-build/*', 'android/*', 'ios/*']),
+  globalIgnores([
+    'node_modules/*',
+    '.expo/*',
+    'dist/*',
+    'web-build/*',
+    'android/*',
+    'ios/*',
+    'mobile/**',
+  ]),
 ]);
