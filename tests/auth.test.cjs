@@ -36,19 +36,24 @@ for (const [rol, expected] of [
     const request = createApiClient({
       fetchImpl: async (url, options) => {
         calls.push({ url, options });
-        return response(200, {
-          status: 'success',
-          data: { token: 'test-token', usuario: { id: 2, rol } },
-        });
+        const data = url.endsWith('/auth/login')
+          ? { token: 'test-token', usuario: { id: 2, rol: 'ADMIN' } }
+          : { id: 2, rol };
+        return response(200, { status: 'success', data });
       },
     });
     const saved = storage();
     const service = createAuthService(request, saved);
     const result = await service.login('usuario', 'clave');
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 2);
     assert.ok(calls[0].url.endsWith('/api/auth/login'));
     assert.equal(calls[0].options.method, 'POST');
     assert.deepEqual(JSON.parse(calls[0].options.body), { username: 'usuario', password: 'clave' });
+    assert.equal(calls[0].options.headers.Authorization, undefined);
+    assert.ok(calls[1].url.endsWith('/api/auth/me'));
+    assert.equal(calls[1].options.method, 'GET');
+    assert.equal(calls[1].options.headers.Authorization, 'Bearer test-token');
+    assert.equal(calls[1].options.body, undefined);
     assert.equal(await saved.getToken(), 'test-token');
     assert.equal(getSessionRoute(result.usuario), expected);
   });
@@ -76,13 +81,13 @@ test('credenciales rechazadas no guardan token ni exponen contraseña', async ()
   const saved = storage();
   const service = createAuthService(
     createApiClient({
-      fetchImpl: async () => response(401, { message: 'Credenciales incorrectas' }),
+      fetchImpl: async () => response(401, { message: 'Contraseña: secreto' }),
     }),
     saved,
   );
   await assert.rejects(
     service.login('usuario', 'secreto'),
-    (error) => error.status === 401 && !error.message.includes('secreto'),
+    (error) => error.status === 401 && error.message === 'Usuario o contraseña incorrectos.',
   );
   assert.equal(await saved.getToken(), null);
 });
@@ -93,9 +98,64 @@ test('rol no permitido y token vacío no producen una sesión', async () => {
     { token: '', usuario: { rol: 'ESTUDIANTE' } },
   ]) {
     const saved = storage();
-    await assert.rejects(createAuthService(async () => data, saved).login('u', 'p'));
+    const request = async (url) => (url === '/auth/login' ? data : data.usuario);
+    await assert.rejects(createAuthService(request, saved).login('u', 'p'));
     assert.equal(await saved.getToken(), null);
   }
+});
+
+test('JWT rechazado por /auth/me no permite iniciar ni recuperar sesión', async () => {
+  for (const status of [401, 403]) {
+    const saved = storage();
+    const request = createApiClient({
+      fetchImpl: async (url) =>
+        url.endsWith('/auth/login')
+          ? response(200, { status: 'success', data: { token: 'rejected-token' } })
+          : response(status, { message: 'No autorizado' }),
+    });
+    const service = createAuthService(request, saved);
+    await assert.rejects(service.login('usuario', 'clave'), { invalidSession: true, status });
+    assert.equal(await saved.getToken(), null);
+    await assert.rejects(service.getMe('rejected-token'), { invalidSession: true, status });
+  }
+});
+
+test('logout y vencimiento simultáneos comparten un solo borrado del JWT', async () => {
+  const deletion = Promise.withResolvers();
+  let deletions = 0;
+  const loadProvider = createLoader({
+    react: {
+      createContext: () => ({ Provider: 'AuthProvider' }),
+      useCallback: (callback) => callback,
+      useEffect: () => {},
+      useRef: (current) => ({ current }),
+      useState: (value) => [value, () => {}],
+    },
+    [path.resolve(__dirname, '../src/shared/services/auth.js')]: {
+      authService: {
+        login: async () => ({ token: 't', usuario: { rol: 'ESTUDIANTE' } }),
+        logout: () => {
+          deletions += 1;
+          return deletion.promise;
+        },
+      },
+    },
+    [path.resolve(__dirname, '../src/shared/services/apiClient.js')]: {
+      apiRequest: async () => {
+        throw Object.assign(new Error('Sesión vencida'), { sessionExpired: true });
+      },
+    },
+  });
+  const { AuthProvider } = loadProvider('src/shared/context/AuthContext.jsx');
+  const auth = AuthProvider({}).props.value;
+  await auth.login('usuario', 'clave');
+  const logout = auth.logout();
+  const request = assert.rejects(auth.request('/contenidos/fisica'), { sessionExpired: true });
+  await Promise.resolve();
+  deletion.resolve();
+  await Promise.all([logout, request]);
+  assert.equal(deletions, 1);
+  await assert.rejects(auth.request('/contenidos/fisica'), /Inicia sesión/);
 });
 
 test('fallo al guardar token no devuelve un login exitoso', async () => {
@@ -103,12 +163,8 @@ test('fallo al guardar token no devuelve un login exitoso', async () => {
   saved.setToken = async () => {
     throw new Error('storage unavailable');
   };
-  await assert.rejects(
-    createAuthService(async () => ({ token: 't', usuario: { rol: 'ESTUDIANTE' } }), saved).login(
-      'u',
-      'p',
-    ),
-  );
+  const request = async (url) => (url === '/auth/login' ? { token: 't' } : { rol: 'ESTUDIANTE' });
+  await assert.rejects(createAuthService(request, saved).login('u', 'p'), /guardar tu sesión/);
 });
 
 test('401 vence sesión, 403 de permisos no la vence', async () => {
@@ -208,10 +264,8 @@ test('el adaptador nativo guarda solo el token y lo elimina al salir', async () 
       deleteItemAsync: async (key) => values.delete(key),
     },
     [path.resolve(__dirname, '../src/shared/services/apiClient.js')]: {
-      apiRequest: async () => ({
-        token: 'test-native-token',
-        usuario: { id: 2, rol: 'ESTUDIANTE' },
-      }),
+      apiRequest: async (url) =>
+        url === '/auth/login' ? { token: 'test-native-token' } : { id: 2, rol: 'ESTUDIANTE' },
     },
   });
   const { authService } = loader('src/shared/services/auth.js');

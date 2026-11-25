@@ -11,20 +11,58 @@ function validateUser(usuario) {
 
 // Dependencias explícitas para reutilizar el servicio y probarlo sin un dispositivo.
 export function createAuthService(request, storage) {
+  async function getMe(token) {
+    try {
+      return validateUser(await request('/auth/me', { token }));
+    } catch (error) {
+      if (error.status === 401 || error.status === 403) {
+        throw Object.assign(new Error('El servidor rechazó tu sesión. Vuelve a iniciar sesión.'), {
+          invalidSession: true,
+          status: error.status,
+        });
+      }
+      if (error.status) {
+        throw Object.assign(
+          new Error('El servidor no pudo verificar tu sesión. Intenta nuevamente.'),
+          {
+            status: error.status,
+          },
+        );
+      }
+      throw error;
+    }
+  }
+
   return {
     async login(username, password) {
-      const result = await request('/auth/login', { body: { username, password } });
-      const usuario = validateUser(result?.usuario);
+      let result;
+      try {
+        result = await request('/auth/login', { body: { username, password } });
+      } catch (error) {
+        // El login muestra mensajes locales para no reproducir datos del formulario.
+        const { status } = error;
+        if (!status) throw error;
+        let message = 'El servidor no pudo iniciar la sesión. Intenta nuevamente.';
+        if ([400, 401, 403, 422].includes(status)) {
+          message = 'Usuario o contraseña incorrectos.';
+        } else if (status === 429) {
+          message = 'Demasiados intentos. Espera unos minutos y vuelve a intentar.';
+        }
+        throw Object.assign(new Error(message), { status });
+      }
       if (typeof result?.token !== 'string' || !result.token.trim()) {
         throw new Error('El servidor no devolvió una sesión válida.');
       }
-      await storage.setToken(result.token);
-      return { token: result.token, usuario };
+      const token = result.token;
+      const usuario = await getMe(token);
+      try {
+        await storage.setToken(token);
+      } catch {
+        throw new Error('No se pudo guardar tu sesión en el dispositivo. Intenta nuevamente.');
+      }
+      return { token, usuario };
     },
-    async getMe(token) {
-      const result = await request('/auth/me', { token });
-      return validateUser(result);
-    },
+    getMe,
     getToken: () => storage.getToken(),
     logout: () => storage.removeToken(),
   };

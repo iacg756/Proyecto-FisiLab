@@ -12,15 +12,25 @@ export function AuthProvider({ children }) {
   const [notice, setNotice] = useState('');
   const token = useRef(null);
   const version = useRef(0);
+  const pendingRemoval = useRef(null);
+
+  const removeToken = useCallback(() => {
+    if (!pendingRemoval.current) {
+      pendingRemoval.current = authService.logout().finally(() => {
+        pendingRemoval.current = null;
+      });
+    }
+    return pendingRemoval.current;
+  }, []);
 
   const logout = useCallback(async () => {
     // Si falla el almacenamiento, conservamos la sesión para permitir reintentar.
-    await authService.logout();
+    await removeToken();
     version.current += 1;
     token.current = null;
     setUsuario(null);
     setNotice('');
-  }, []);
+  }, [removeToken]);
 
   const restore = useCallback(async () => {
     const operation = ++version.current;
@@ -37,7 +47,7 @@ export function AuthProvider({ children }) {
       if (version.current !== operation) return;
       if (error.sessionExpired || error.invalidSession) {
         try {
-          await authService.logout();
+          await removeToken();
           if (version.current !== operation) return;
           token.current = null;
           setUsuario(null);
@@ -51,7 +61,7 @@ export function AuthProvider({ children }) {
     } finally {
       if (version.current === operation) setRestoring(false);
     }
-  }, []);
+  }, [removeToken]);
 
   useEffect(() => {
     let active = true;
@@ -72,29 +82,33 @@ export function AuthProvider({ children }) {
     setNotice('');
   }, []);
 
-  const request = useCallback(async (path, options = {}) => {
-    const active = token.current;
-    if (!active) throw new Error('Inicia sesión para continuar.');
-    try {
-      return await apiRequest(path, { ...options, token: active });
-    } catch (error) {
-      if (error.sessionExpired && token.current === active) {
-        version.current += 1;
-        token.current = null;
-        setUsuario(null);
-        setRestoring(true);
-        try {
-          await authService.logout();
-          setNotice('Tu sesión venció. Vuelve a iniciar sesión.');
-        } catch {
-          setRestoreError('No se pudo borrar la sesión vencida. Intenta nuevamente.');
-        } finally {
-          setRestoring(false);
+  const request = useCallback(
+    async (path, options = {}) => {
+      const active = token.current;
+      const requestVersion = version.current;
+      if (!active) throw new Error('Inicia sesión para continuar.');
+      try {
+        return await apiRequest(path, { ...options, token: active });
+      } catch (error) {
+        if (error.sessionExpired && version.current === requestVersion) {
+          version.current += 1;
+          token.current = null;
+          setUsuario(null);
+          setRestoring(true);
+          try {
+            await removeToken();
+            setNotice('Tu sesión venció. Vuelve a iniciar sesión.');
+          } catch {
+            setRestoreError('No se pudo borrar la sesión vencida. Intenta nuevamente.');
+          } finally {
+            setRestoring(false);
+          }
         }
+        throw error;
       }
-      throw error;
-    }
-  }, []);
+    },
+    [removeToken],
+  );
 
   return (
     <AuthContext.Provider
